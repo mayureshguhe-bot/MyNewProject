@@ -1,6 +1,5 @@
 public class Index {
     public static void main(String[] args) {
-        System.out.println("Hello,Git!");
-        System.out.println("This is my First Project.");
+       System.out.println("Trying to do better each time!");
     }
 }
