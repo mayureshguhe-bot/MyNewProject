@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My E-Commerce Store</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<header>
+    <h1>My E-Commerce Store</h1>
+
+    <nav>
+        <a href="#">Home</a>
+        <a href="#products">Products</a>
+        <a href="#cart">Cart (<span id="nav-cart-count">0</span>)</a>
+    </nav>
+</header>
+
+<main>
+
+    <h2 id="products">Products</h2>
+
+    <div class="products">
+
+        <div class="product">
+            <img src="images/mouse.jpg" alt="Wireless Mouse">
+            <h3>Wireless Mouse</h3>
+            <p>Price: ₹799</p>
+            <button onclick="addToCart('Wireless Mouse',799)">Add to Cart</button>
+        </div>
+
+        <div class="product">
+            <img src="images/keyboard.jpg" alt="Keyboard">
+            <h3>Keyboard</h3>
+            <p>Price: ₹1199</p>
+            <button onclick="addToCart('Keyboard',1199)">Add to Cart</button>
+        </div>
+
+        <div class="product">
+            <img src="images/headphone.jpg" alt="Headphones">
+            <h3>Headphones</h3>
+            <p>Price: ₹1499</p>
+            <button onclick="addToCart('Headphones',1499)">Add to Cart</button>
+        </div>
+
+        <div class="product">
+            <img src="images/laptop.jpg" alt="Laptop">
+            <h3>Laptop</h3>
+            <p>Price: ₹79878</p>
+            <button onclick="addToCart('Laptop',79878)">Add to Cart</button>
+        </div>
+
+    </div>
+
+<section id="cart">
+    <h2>Cart: <span id="cart-count">0</span></h2>
+
+    <div id="cart-items">
+        <p>Your cart is currently empty.</p>
+    </div>
+
+    <button id="checkout-button">Checkout</button>
+
+    <p id="cart-total">Total: ₹0</p>
+</section>
+
+</main>
+
+<footer>
+    <p>© 2026 My E-Commerce Store</p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

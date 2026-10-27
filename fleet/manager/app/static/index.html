@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet Manager</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1d2330; --mut:#6b7385; --card:#fff; --line:#dde1e8; --ok:#1a7f4b; --warn:#b26a00; --bad:#c0392b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; gap:12px; align-items:center; padding:10px 16px; background:#1d2330; color:#fff; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0 auto 0 0; }
+  header input { padding:4px 8px; border-radius:4px; border:0; width:160px; }
+  header a { color:#9ec1ff; }
+  main { padding:16px; display:grid; gap:16px; max-width:1200px; margin:0 auto; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:6px; padding:12px 14px; overflow-x:auto; }
+  h2 { font-size:14px; margin:0 0 8px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mut); font-weight:600; font-size:12px; }
+  .badge { padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600; color:#fff; }
+  .ONLINE,.done,.resolved { background:var(--ok); } .DEGRADED,.queued,.running,.expired { background:var(--warn); }
+  .OFFLINE,.failed,.firing { background:var(--bad); }
+  .tiles { display:flex; gap:12px; flex-wrap:wrap; }
+  .tile { flex:1 1 120px; border:1px solid var(--line); border-radius:6px; padding:8px 12px; }
+  .tile b { display:block; font-size:22px; }
+  button, select, input[type=text] { font:inherit; padding:4px 8px; }
+  button { cursor:pointer; }
+  pre { background:#10151f; color:#d7e0ee; padding:8px; border-radius:4px; max-height:240px; overflow:auto; margin:6px 0 0; white-space:pre-wrap; }
+  code { background:#eef0f4; padding:1px 4px; border-radius:3px; word-break:break-all; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .mut { color:var(--mut); }
+  #err { color:var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fleet Manager</h1>
+  <span id="err"></span>
+  <label>Admin key <input id="key" type="password" placeholder="ADMIN_KEY"></label>
+  <a id="graf" target="_blank">Grafana</a>
+  <a id="prom" target="_blank">Prometheus</a>
+</header>
+<main>
+  <section><div class="tiles" id="tiles"></div></section>
+
+  <section>
+    <h2>Add a node</h2>
+    <div class="row">
+      <input type="text" id="label" placeholder="label (optional)">
+      <button onclick="newToken()">Generate install command</button>
+    </div>
+    <div id="install" class="mut" style="margin-top:8px"></div>
+  </section>
+
+  <section>
+    <h2>Nodes</h2>
+    <table id="nodes"></table>
+  </section>
+
+  <section>
+    <h2>Run command (allow-listed)</h2>
+    <div class="row">
+      <select id="cnode"></select>
+      <select id="ccmd" onchange="syncArg()"></select>
+      <input type="text" id="carg" placeholder="unit name, e.g. ssh">
+      <button onclick="runCmd()">Run</button>
+      <span id="cmsg" class="mut"></span>
+    </div>
+    <h2 style="margin-top:14px">Recent commands</h2>
+    <table id="cmds"></table>
+  </section>
+
+  <section><h2>Alerts (from Alertmanager)</h2><table id="alerts"></table></section>
+  <section><h2>Audit log</h2><table id="audit"></table></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ts = t => t ? new Date(t*1000).toLocaleTimeString() : '';
+$('key').value = localStorage.getItem('adminKey') || '';
+$('key').onchange = () => { localStorage.setItem('adminKey', $('key').value); refresh(); };
+$('graf').href = location.protocol + '//' + location.hostname + ':3000';
+$('prom').href = location.protocol + '//' + location.hostname + ':9090';
+let allowed = [];
+
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: {'Content-Type':'application/json', 'X-Admin-Key': $('key').value},
+                                body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+}
+
+async function newToken() {
+  try {
+    const t = await api('POST', '/api/tokens', { label: $('label').value });
+    $('install').innerHTML = 'Run on the new node (valid ' + Math.round(t.expires_in/60) + ' min, single use):<pre>' + esc(t.install_command) + '</pre>';
+  } catch (e) { $('install').textContent = e.message; }
+}
+
+function syncArg() {
+  const c = allowed.find(a => a.key === $('ccmd').value);
+  $('carg').style.display = c && c.needs_arg ? '' : 'none';
+}
+
+async function runCmd() {
+  try {
+    const r = await api('POST', `/api/nodes/${$('cnode').value}/commands`, { cmd: $('ccmd').value, arg: $('carg').value });
+    $('cmsg').textContent = 'queued #' + r.id + (r.note ? ' - ' + r.note : '');
+    refresh();
+  } catch (e) { $('cmsg').textContent = e.message; }
+}
+
+async function delNode(id) {
+  if (confirm('Remove node ' + id + ' from the fleet?')) { await api('DELETE', '/api/nodes/' + id); refresh(); }
+}
+
+async function refresh() {
+  try {
+    const [nodes, cmds, audit, alerts] = await Promise.all([
+      api('GET','/api/nodes'), api('GET','/api/commands?limit=15'), api('GET','/api/audit?limit=25'), api('GET','/api/alerts?limit=15')]);
+    if (!allowed.length) {
+      allowed = await api('GET', '/api/commands/allowed');
+      $('ccmd').innerHTML = allowed.map(a => `<option value="${a.key}">${a.key} - ${esc(a.description)}</option>`).join('');
+      syncArg();
+    }
+    $('err').textContent = '';
+    const n = s => nodes.filter(x => x.state === s).length;
+    $('tiles').innerHTML = [['Total', nodes.length], ['Online', n('ONLINE')], ['Degraded', n('DEGRADED')], ['Offline', n('OFFLINE')]]
+      .map(([k, v]) => `<div class="tile"><span class="mut">${k}</span><b>${v}</b></div>`).join('');
+    $('nodes').innerHTML = '<tr><th>Host</th><th>ID</th><th>Address</th><th>State</th><th>Last heartbeat</th><th>Load</th><th>Mem free</th><th>Uptime</th><th>OS</th><th></th></tr>' +
+      nodes.map(x => `<tr><td>${esc(x.hostname)}</td><td>${x.id}</td><td>${esc(x.address)}</td>
+        <td><span class="badge ${x.state}">${x.state}</span></td><td>${x.heartbeat_age}s ago</td>
+        <td>${x.load1 ?? ''}</td><td>${x.mem_avail_pct ?? ''}%</td><td>${x.uptime_s ? Math.round(x.uptime_s/3600*10)/10 + ' h' : ''}</td>
+        <td>${esc(x.os)}</td><td><button onclick="delNode('${x.id}')">remove</button></td></tr>`).join('');
+    const sel = $('cnode').value;
+    $('cnode').innerHTML = nodes.map(x => `<option value="${x.id}">${esc(x.hostname)} (${x.state})</option>`).join('');
+    if (sel) $('cnode').value = sel;
+    $('cmds').innerHTML = '<tr><th>#</th><th>Time</th><th>Node</th><th>Command</th><th>Status</th><th>Output</th></tr>' +
+      cmds.map(c => `<tr><td>${c.id}</td><td>${ts(c.created)}</td><td>${esc(c.hostname || c.node_id)}</td>
+        <td><code>${esc(c.cmd + ' ' + (c.arg||''))}</code></td><td><span class="badge ${c.status}">${c.status}</span></td>
+        <td>${c.output ? '<details><summary>show</summary><pre>' + esc(c.output) + '</pre></details>' : ''}</td></tr>`).join('');
+    $('alerts').innerHTML = '<tr><th>Time</th><th>Status</th><th>Alert</th><th>Severity</th><th>Node</th><th>Summary</th></tr>' +
+      alerts.map(a => `<tr><td>${ts(a.ts)}</td><td><span class="badge ${a.status}">${esc(a.status)}</span></td><td>${esc(a.name)}</td><td>${esc(a.severity)}</td><td>${esc(a.instance)}</td><td>${esc(a.summary)}</td></tr>`).join('');
+    $('audit').innerHTML = '<tr><th>Time</th><th>Actor</th><th>Event</th><th>Node</th><th>Detail</th></tr>' +
+      audit.map(a => `<tr><td>${ts(a.ts)}</td><td>${esc(a.actor)}</td><td>${esc(a.event)}</td><td>${esc(a.node_id)}</td><td>${esc(a.detail)}</td></tr>`).join('');
+  } catch (e) { $('err').textContent = e.message; }
+}
+refresh(); setInterval(refresh, 3000);
+</script>
+</body>
+</html>

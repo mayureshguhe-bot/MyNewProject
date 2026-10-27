@@ -1,0 +1,58 @@
+# Prometheus configuration for the Fleet Manager project.
+# Fleet nodes are NOT listed here: the manager writes targets/nodes.json at onboarding
+# and Prometheus picks it up through file_sd, so this file never needs editing per node.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'fleet'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+      timeout: 10s
+
+rule_files:
+  - "alert.rules.yml"
+
+scrape_configs:
+
+  # --- Managed Linux nodes (dynamic) ---
+  - job_name: 'fleet-nodes'
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/nodes.json
+        refresh_interval: 10s
+    relabel_configs:
+      - source_labels: [hostname]
+        target_label: instance
+
+  # --- Fleet Manager itself (node states, command counters) ---
+  - job_name: 'fleet-manager'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['fleet-manager:8000']
+
+  # --- Monitoring stack self-monitoring ---
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
+    scrape_interval: 30s
+
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    scrape_interval: 30s
+
+  - job_name: 'node_exporter'
+    static_configs:
+      - targets:
+          - '172.31.39.181:9100'
+          - '172.31.44.218:9100'

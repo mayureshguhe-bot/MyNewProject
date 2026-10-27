@@ -1,0 +1,32 @@
+# Alerts are delivered to the Fleet Manager so they appear in its UI (no Slack/email needed).
+# To add Slack or email later, add another receiver and a sub-route.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'hostname']
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+  receiver: 'fleet-manager'
+
+receivers:
+  - name: 'fleet-manager'
+    webhook_configs:
+      - url: 'http://fleet-manager:8000/api/alerts/webhook'
+        send_resolved: true
+
+inhibit_rules:
+  # An OFFLINE node makes its other alerts noise.
+  - source_match:
+      alertname: 'FleetNodeOffline'
+    target_match_re:
+      alertname: 'FleetNodeDegraded|NodeExporterDown|HighCpuUsage|LowMemory|LowDiskSpace'
+    equal: ['hostname']
+  # DEGRADED is superseded by OFFLINE for the same node.
+  - source_match:
+      alertname: 'FleetNodeOffline'
+    target_match:
+      alertname: 'FleetNodeDegraded'
+    equal: ['hostname']

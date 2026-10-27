@@ -1,0 +1,96 @@
+groups:
+
+  # ---------------------------------------------------------------
+  # Fleet availability (driven by the manager's heartbeat state machine)
+  # ---------------------------------------------------------------
+  - name: fleet-availability
+    rules:
+      - alert: FleetNodeDegraded
+        expr: fleet_node_state_code == 1
+        for: 0m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Node {{ $labels.hostname }} is DEGRADED (heartbeats late)"
+
+      - alert: FleetNodeOffline
+        expr: fleet_node_state_code == 2
+        for: 0m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Node {{ $labels.hostname }} is OFFLINE (no heartbeat)"
+
+  # ---------------------------------------------------------------
+  # Node health (from node_exporter, scraped by Prometheus)
+  # ---------------------------------------------------------------
+  - name: node-health
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="fleet-nodes"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Metrics scrape failing for {{ $labels.hostname }}"
+          description: "Prometheus cannot reach node_exporter on {{ $labels.hostname }} for over 1 minute."
+
+      - alert: HighCpuUsage
+        expr: >
+          100 - (avg by(hostname) (rate(node_cpu_seconds_total{job="fleet-nodes",mode="idle"}[2m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "High CPU on {{ $labels.hostname }}"
+          description: "CPU usage is {{ $value | printf \"%.1f\" }}% (5 min sustained)."
+
+      - alert: LowMemory
+        expr: >
+          node_memory_MemAvailable_bytes{job="fleet-nodes"} / node_memory_MemTotal_bytes{job="fleet-nodes"} * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Low memory on {{ $labels.hostname }}"
+          description: "Only {{ $value | printf \"%.1f\" }}% memory available."
+
+      - alert: LowDiskSpace
+        expr: >
+          node_filesystem_avail_bytes{job="fleet-nodes",mountpoint="/",fstype!="tmpfs"}
+          / node_filesystem_size_bytes{job="fleet-nodes",mountpoint="/",fstype!="tmpfs"} * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          team: ops
+        annotations:
+          summary: "Low disk space on {{ $labels.hostname }}"
+          description: "Only {{ $value | printf \"%.1f\" }}% free on /."
+
+  # ---------------------------------------------------------------
+  # Monitoring stack self-checks
+  # ---------------------------------------------------------------
+  - name: stack-self
+    rules:
+      - alert: FleetManagerDown
+        expr: up{job="fleet-manager"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Fleet Manager is not reachable by Prometheus"
+
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: ops
+        annotations:
+          summary: "Prometheus config reload failed"

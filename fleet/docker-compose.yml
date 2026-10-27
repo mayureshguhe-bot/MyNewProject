@@ -1,0 +1,73 @@
+services:
+
+  fleet-manager:
+    build: ./manager
+    container_name: fleet-manager
+    restart: unless-stopped
+    environment:
+      ADMIN_KEY: ${ADMIN_KEY:-admin123}
+      # URL the NODES use to reach this manager (private IP of this EC2 instance), e.g. http://10.0.1.10:8000
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      DEGRADED_AFTER: "30"
+      OFFLINE_AFTER: "60"
+    ports:
+      - "8000:8000"
+    volumes:
+      - manager_data:/data
+      - ./prometheus/targets:/targets
+    networks: [monitoring_network]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - ./prometheus/targets:/etc/prometheus/targets:ro
+      - prometheus_data:/prometheus
+    networks: [monitoring_network]
+    depends_on: [fleet-manager]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks: [monitoring_network]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks: [monitoring_network]
+    depends_on: [prometheus]
+
+networks:
+  monitoring_network:
+    name: monitoring_network
+
+volumes:
+  manager_data:
+  prometheus_data:
+  grafana_data:
